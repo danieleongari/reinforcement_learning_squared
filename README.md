@@ -1,4 +1,4 @@
-# Learning Reinforcement Learnining = Reinforcement Learning$^2$
+# Learning Reinforcement Learnining = RL^2
 
 Environment created on October 20th 2021 with:
 ```
