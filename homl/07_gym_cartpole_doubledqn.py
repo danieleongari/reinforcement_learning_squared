@@ -1,4 +1,4 @@
-"""Q-Learning for CartPole (HoML pag 634)."""
+"""Double Deep Q-Learning Network for CartPole (HoML pag 640)."""
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # Avoid message "This TensorFlow binary is optimized with ..."
 import numpy as np
@@ -18,7 +18,7 @@ def epsilon_greedy_policy(state, epsilon=0):
     if np.random.rand() < epsilon:
         return np.random.randint(2) # 0 or 1
     else:
-        Q_values = model.predict(state[np.newaxis]) 
+        Q_values = train_model.predict(state[np.newaxis]) 
         return np.argmax(Q_values[0])
 
 def play_one_step(env, state, epsilon):
@@ -41,17 +41,19 @@ def sample_experiences(batch_size):
 def training_step(batch_size):
     """Use a random sample of experiences to train the model."""
     states, actions, rewards, next_states, dones = sample_experiences(batch_size) 
-    next_Q_values = model.predict(next_states) 
-    max_next_Q_values = np.max(next_Q_values, axis=1) 
-    target_Q_values = (rewards + (1 - dones) * discount_factor * max_next_Q_values)
+    next_Q_values = train_model.predict(next_states)
+    best_next_actions = np.argmax(next_Q_values, axis=1)
+    next_mask = tf.one_hot(best_next_actions, n_outputs).numpy() 
+    next_best_Q_values = (target_model.predict(next_states) * next_mask).sum(axis=1) 
+    target_Q_values = (rewards + (1 - dones) * discount_factor * next_best_Q_values) 
     target_Q_values = target_Q_values.reshape(-1, 1) # Missing in the book: list to column vector (NOTE: but probably loss_fn can now handle lists too)
     mask = tf.one_hot(actions, n_outputs)
     with tf.GradientTape() as tape:
-        all_Q_values = model(states)
+        all_Q_values = train_model(states)
         Q_values = tf.reduce_sum(all_Q_values * mask, axis=1, keepdims=True) 
         loss = tf.reduce_mean(loss_fn(target_Q_values, Q_values))
-        grads = tape.gradient(loss, model.trainable_variables)
-        optimizer.apply_gradients(zip(grads, model.trainable_variables))
+        grads = tape.gradient(loss, train_model.trainable_variables)
+        optimizer.apply_gradients(zip(grads, train_model.trainable_variables))
     return rewards
 
 # Input environment and settings
@@ -61,6 +63,7 @@ n_episodes = 600            # Episodes to run
 n_max_steps = 200           # Max steps in each episode
 episodes_pre_train = 50     # Episode when start training
 exp_to_remember = 2000      # Experiences stored in the replay_buffer: after that, forget the older ones
+episodes_train_target = 50  # NEW: frequency of update for the target model used for predictions
 batch_size = 32
 discount_factor = 0.95
 optimizer = keras.optimizers.Adam(learning_rate=1e-2) # GitHub's ipynb says that 1e-2 is better than 1e-3 
@@ -69,11 +72,15 @@ loss_fn = keras.losses.mean_squared_error
 # Deep Model
 input_shape = [4] # == env.observation_space.shape 
 n_outputs = 2 # == env.action_space.n
-model = keras.models.Sequential([
+train_model = keras.models.Sequential([
     keras.layers.Dense(32, activation="elu", input_shape=input_shape),
     keras.layers.Dense(32, activation="elu"),
     keras.layers.Dense(n_outputs)
 ])
+
+# NEW: set target model
+target_model = keras.models.clone_model(train_model)
+target_model.set_weights(train_model.get_weights()) # Initial weights are random, but the same for both "train_model" and "target_model"
 
 # Storage for all agent's experiences (steps), in form of tuples: (obs, action, reward, next_obs, done)
 replay_buffer = deque(maxlen=exp_to_remember)
@@ -101,9 +108,16 @@ for iepisode in range(n_episodes):
         plot_color = 'blue'
         print("Exploration") # fill up replay buffer, with enough diversity
     else:
-        plot_color = 'green'
+        if iepisode % 50 == 0: # NEW: update weights of the target model
+            target_model.set_weights(train_model.get_weights())
+            plot_color = 'red'
+            print("Update weights & Training")
+        else:
+            plot_color = 'green'
+            print("Training")
+        
+        
         training_step(batch_size)
-        print("Training")
 
     # Update plot showing the current return
     if iepisode: # Skip first, which has no previous step
