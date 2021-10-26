@@ -1,6 +1,7 @@
 """First example of RL (HoML pag 614)."""
 import numpy as np
 import gym
+import time
 
 def basic_policy(obs):
     """Move the cart left (0) if the pole is pending left, and move right (1) otherwise."""
@@ -26,6 +27,7 @@ for iepisode in range(nepisode):
         env.render()
         if done:
             print(f"Episode {iepisode:3}: fallen after {episode_rewards:4} steps.")
+            time.sleep(1)
             break
 
     totals.append(episode_rewards)
